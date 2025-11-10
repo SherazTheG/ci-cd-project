@@ -8,7 +8,7 @@ pipeline {
     environment {
         GCP_PROJECT_ID = 'artisan-project-472013'  // Replace with your GCP project ID
         GCP_REGION = 'us-central1'  // Replace with your region
-        ARTIFACT_REGISTRY = "${us-central1}-docker.pkg.dev"
+        ARTIFACT_REGISTRY = "${GCP_REGION}-docker.pkg.dev"
         REPOSITORY_NAME = 'devops-cia2-repo'
         IMAGE_NAME = 'devops-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
