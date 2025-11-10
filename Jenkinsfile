@@ -168,8 +168,7 @@ pipeline {
     
     post {
         success {
-            // Add 'node' block to run on the agent
-            node {
+            node { // <-- ADDED WRAPPER
                 echo '========== Pipeline Completed Successfully! =========='
                 script {
                     def SERVER_IP = sh(script: "curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H 'Metadata-Flavor: Google'", returnStdout: true).trim()
@@ -179,6 +178,64 @@ pipeline {
                             subject: "✅ Jenkins Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                             body: """
                                 <html>
+                                <body style="font-family: Arial, sans-serif;">
+                                    <div style="background-color: #4CAF50; color: white; padding: 20px; text-align: center;">
+                                        <h1>🎉 Build Successful!</h1>
+                                    </div>
+                                    <div style="padding: 20px;">
+                                        <h2>Build Details</h2>
+                                        <table style="border-collapse: collapse; width: 100%;">
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><strong>Job Name:</strong></td>
+                                                <td style="padding: 8px; border: 1px solid #ddd;">${env.JOB_NAME}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build Number:</strong></td>
+                                                <td style="padding: 8px; border: 1px solid #ddd;">#${env.BUILD_NUMBER}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><strong>Docker Image:</strong></td>
+                                                <td style="padding: 8px; border: 1px solid #ddd;">${FULL_IMAGE_PATH}:${IMAGE_TAG}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build URL:</strong></td>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><a href="${env.BUILD_URL}">View in Jenkins</a></td>
+                                            </tr>
+                                        </table>
+                                        
+                                        <h2 style="margin-top: 30px;">🚀 Application Access</h2>
+                                        <div style="background-color: #e3f2fd; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                                            <p style="margin: 5px 0;"><strong>Application URL:</strong></p>
+                                            <p style="margin: 5px 0; font-size: 18px;">
+                                                <a href="http://${SERVER_IP}" style="color: #1976D2; text-decoration: none;">
+                                                    http://${SERVER_IP}
+                                                </a>
+                                            </p>
+                                        </div>
+                                        
+                                        <div style="background-color: #fff3e0; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                                            <p style="margin: 5px 0;"><strong>Jenkins Dashboard:</strong></p>
+                                            <p style="margin: 5px 0;">
+                                                <a href="http://${SERVER_IP}:8080" style="color: #F57C00; text-decoration: none;">
+                                                    http://${SERVER_IP}:8080
+                                                </a>
+                                            </p>
+                                        </div>
+                                        
+                                        <h2 style="margin-top: 30px;">📦 Deployment Info</h2>
+                                        <ul>
+                                            <li>Platform: Google Cloud Platform (GCP)</li>
+                                            <li>Deployment Type: Docker Container</li>
+                                            <li>Container Name: ${CONTAINER_NAME}</li>
+                                            <li>Port: ${APP_PORT}</li>
+                                            <li>Registry: GCP Artifact Registry</li>
+                                        </ul>
+                                        
+                                        <p style="margin-top: 30px; color: #666;">
+                                            <em>This is an automated message from Jenkins CI/CD Pipeline</em>
+                                        </p>
+                                    </div>
+                                </body>
                                 </html>
                             """,
                             to: 'mdfarhaanhere@gmail.com',
@@ -188,12 +245,11 @@ pipeline {
                         )
                     }
                 }
-            }
+            } // <-- ADDED WRAPPER
         }
         
         failure {
-            // Add 'node' block to run on the agent
-            node {
+            node { // <-- ADDED WRAPPER
                 echo '========== Pipeline Failed! =========='
                 script {
                     def SERVER_IP = sh(script: "curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H 'Metadata-Flavor: Google'", returnStdout: true).trim()
@@ -203,6 +259,51 @@ pipeline {
                             subject: "❌ Jenkins Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                             body: """
                                 <html>
+                                <body style="font-family: Arial, sans-serif;">
+                                    <div style="background-color: #f44336; color: white; padding: 20px; text-align: center;">
+                                        <h1>⚠️ Build Failed!</h1>
+                                    </div>
+                                    <div style="padding: 20px;">
+                                        <h2>Build Details</h2>
+                                        <table style="border-collapse: collapse; width: 100%;">
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><strong>Job Name:</strong></td>
+                                                <td style="padding: 8px; border: 1px solid #ddd;">${env.JOB_NAME}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build Number:</strong></td>
+                                                <td style="padding: 8px; border: 1px solid #ddd;">#${env.BUILD_NUMBER}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build URL:</strong></td>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><a href="${env.BUILD_URL}">View in Jenkins</a></td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><strong>Console Output:</strong></td>
+                                                <td style="padding: 8px; border: 1px solid #ddd;"><a href="${env.BUILD_URL}console">View Console Log</a></td>
+                                            </tr>
+                                        </table>
+                                        
+                                        <div style="background-color: #ffebee; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                                            <h3 style="margin-top: 0; color: #c62828;">Action Required</h3>
+                                            <p>Please check the console output to identify and fix the issue.</p>
+                                            <p>
+                                                <a href="${env.BUILD_URL}console" style="background-color: #f44336; color: white; padding: 10px 20px; text-decoration: none; border-radius: 3px; display: inline-block;">
+                                                    View Console Output
+                                                </a>
+                                            </p>
+                                        </div>
+                                        
+                                        <h3>Jenkins Dashboard</h3>
+                                        <p>
+                                            <a href="http://${SERVER_IP}:8080">http://${SERVER_IP}:8080</a>
+                                        </p>
+                                        
+                                        <p style="margin-top: 30px; color: #666;">
+                                            <em>This is an automated message from Jenkins CI/CD Pipeline</em>
+                                        </p>
+                                    </div>
+                                </body>
                                 </html>
                             """,
                             to: 'mdsheraz102@gmail.com',
@@ -212,87 +313,14 @@ pipeline {
                         )
                     }
                 }
-            }
+            } // <-- ADDED WRAPPER
         }
         
         always {
-            // Add 'node' block for cleanWs to run on the agent
-            node {
+            node { // <-- ADDED WRAPPER
                 echo '========== Cleaning up workspace =========='
                 cleanWs()
-            }
-        }
-    }
-}        
-        failure {
-            echo '========== Pipeline Failed! =========='
-            script {
-                def SERVER_IP = sh(script: "curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H 'Metadata-Flavor: Google'", returnStdout: true).trim()
-                
-                withCredentials([usernamePassword(credentialsId: 'gmail-credentials', usernameVariable: 'EMAIL_USER', passwordVariable: 'EMAIL_PASS')]) {
-                    emailext(
-                        subject: "❌ Jenkins Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                        body: """
-                            <html>
-                            <body style="font-family: Arial, sans-serif;">
-                                <div style="background-color: #f44336; color: white; padding: 20px; text-align: center;">
-                                    <h1>⚠️ Build Failed!</h1>
-                                </div>
-                                <div style="padding: 20px;">
-                                    <h2>Build Details</h2>
-                                    <table style="border-collapse: collapse; width: 100%;">
-                                        <tr>
-                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Job Name:</strong></td>
-                                            <td style="padding: 8px; border: 1px solid #ddd;">${env.JOB_NAME}</td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build Number:</strong></td>
-                                            <td style="padding: 8px; border: 1px solid #ddd;">#${env.BUILD_NUMBER}</td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build URL:</strong></td>
-                                            <td style="padding: 8px; border: 1px solid #ddd;"><a href="${env.BUILD_URL}">View in Jenkins</a></td>
-                                        </tr>
-                                        <tr>
-                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Console Output:</strong></td>
-                                            <td style="padding: 8px; border: 1px solid #ddd;"><a href="${env.BUILD_URL}console">View Console Log</a></td>
-                                        </tr>
-                                    </table>
-                                    
-                                    <div style="background-color: #ffebee; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                                        <h3 style="margin-top: 0; color: #c62828;">Action Required</h3>
-                                        <p>Please check the console output to identify and fix the issue.</p>
-                                        <p>
-                                            <a href="${env.BUILD_URL}console" style="background-color: #f44336; color: white; padding: 10px 20px; text-decoration: none; border-radius: 3px; display: inline-block;">
-                                                View Console Output
-                                            </a>
-                                        </p>
-                                    </div>
-                                    
-                                    <h3>Jenkins Dashboard</h3>
-                                    <p>
-                                        <a href="http://${SERVER_IP}:8080">http://${SERVER_IP}:8080</a>
-                                    </p>
-                                    
-                                    <p style="margin-top: 30px; color: #666;">
-                                        <em>This is an automated message from Jenkins CI/CD Pipeline</em>
-                                    </p>
-                                </div>
-                            </body>
-                            </html>
-                        """,
-                        to: 'mdsheraz102@gmail.com',
-                        mimeType: 'text/html',
-                        from: EMAIL_USER,
-                        replyTo: EMAIL_USER
-                    )
-                }
-            }
-        }
-        
-        always {
-            echo '========== Cleaning up workspace =========='
-            cleanWs()
+            } // <-- ADDED WRAPPER
         }
     }
 }
