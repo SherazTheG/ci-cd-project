@@ -1,109 +1,320 @@
 pipeline {
     agent any
-
-    // These variables will be used in the stages
-    environment {
-        // ---!!! YOU MUST EDIT THESE VALUES !!!---
-        AWS_ACCOUNT_ID    = "YOUR_AWS_ACCOUNT_ID"       // Find this in your AWS console
-        AWS_REGION        = "us-east-1"                 // The region for your ECR/EC2
-        ECR_REPO_NAME     = "my-web-app"                // The ECR repo name you will create
-        TARGET_EC2_IP     = "YOUR_TARGET_EC2_PUBLIC_IP" // The IP of your deployment server
-        TARGET_EC2_USER   = "ubuntu"                    // We are using an Ubuntu server
-        // ---!!! -----------------------------!!!---
-
-        // These are calculated automatically
-        ECR_REPO_URL      = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        IMAGE_NAME        = "${ECR_REPO_NAME}:${env.BUILD_NUMBER}"
-        IMAGE_NAME_LATEST = "${ECR_REPO_NAME}:latest"
+    
+    tools {
+        nodejs 'NodeJS-20'
     }
-
+    
+    environment {
+        GCP_PROJECT_ID = 'artisan-project-472013'  // Replace with your GCP project ID
+        GCP_REGION = 'us-central1'  // Replace with your region
+        ARTIFACT_REGISTRY = "${us-central1}-docker.pkg.dev"
+        REPOSITORY_NAME = 'devops-cia2-repo'
+        IMAGE_NAME = 'devops-app'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        FULL_IMAGE_PATH = "${ARTIFACT_REGISTRY}/${GCP_PROJECT_ID}/${REPOSITORY_NAME}/${IMAGE_NAME}"
+        CONTAINER_NAME = 'devops-app'
+        APP_PORT = '80'
+    }
+    
     stages {
-        stage('1. Checkout Code') {
+        stage('Checkout') {
             steps {
-                echo 'Checking out code from GitHub...'
+                echo '========== Cloning Repository =========='
                 checkout scm
             }
         }
-
-        stage('2. Build Application') {
+        
+        stage('Install Dependencies') {
             steps {
-                echo 'Installing Node.js dependencies...'
-                sh 'npm install'
+                echo '========== Installing npm dependencies =========='
+                sh '''
+                    node --version
+                    npm --version
+                    npm ci
+                '''
             }
         }
-
-        stage('3. Run Tests') {
+        
+        stage('Code Quality Analysis - ESLint') {
             steps {
-                echo 'Running tests...'
-                sh 'npm test'
+                echo '========== Running ESLint =========='
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    sh 'npm run lint'
+                }
             }
         }
-
-        stage('4. Build Docker Image') {
+        
+        stage('Build Application') {
             steps {
-                echo "Building Docker image: ${IMAGE_NAME}"
-                sh "docker build -t ${IMAGE_NAME} ."
-                sh "docker tag ${IMAGE_NAME} ${IMAGE_NAME_LATEST}"
+                echo '========== Building React application =========='
+                sh 'npm run build'
             }
         }
-
-        stage('5. Push to AWS ECR') {
+        
+        stage('Run Tests') {
             steps {
-                echo 'Logging in to AWS ECR...'
-                // Jenkins uses its attached IAM Role for credentials
-                sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO_URL}"
-
-                echo "Pushing image ${ECR_REPO_URL}/${IMAGE_NAME}..."
-                sh "docker tag ${IMAGE_NAME} ${ECR_REPO_URL}/${IMAGE_NAME}"
-                sh "docker push ${ECR_REPO_URL}/${IMAGE_NAME}"
-
-                echo "Pushing image ${ECR_REPO_URL}/${IMAGE_NAME_LATEST}..."
-                sh "docker tag ${IMAGE_NAME_LATEST} ${ECR_REPO_URL}/${IMAGE_NAME_LATEST}"
-                sh "docker push ${ECR_REPO_URL}/${IMAGE_NAME_LATEST}"
+                echo '========== Running Tests =========='
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    sh 'npm test'
+                }
             }
         }
-
-        stage('6. Deploy to EC2') {
+        
+        stage('Build Docker Image') {
             steps {
-                echo "Deploying application to ${TARGET_EC2_IP}..."
-                // 'target-ec2-ssh' is the Credential ID we will create in Jenkins
-                sshagent(credentials: ['target-ec2-ssh']) {
+                echo '========== Building Docker Image =========='
+                script {
                     sh """
-                        ssh -o StrictHostKeyChecking=no ${TARGET_EC2_USER}@${TARGET_EC2_IP} '
-
-                            # Log in to ECR on the target machine (uses its own IAM Role)
-                            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPO_URL}
-
-                            # Stop and remove the old container, if it exists
-                            docker stop my-web-app || true
-                            docker rm my-web-app || true
-
-                            # Pull the new 'latest' image from ECR
-                            docker pull ${ECR_REPO_URL}/${IMAGE_NAME_LATEST}
-
-                            # Run the new container, mapping port 80 (public) to 8080 (app)
-                            docker run -d -p 80:8080 --name my-web-app ${ECR_REPO_URL}/${IMAGE_NAME_LATEST}
-                        '
+                        docker build -t ${FULL_IMAGE_PATH}:${IMAGE_TAG} .
+                        docker tag ${FULL_IMAGE_PATH}:${IMAGE_TAG} ${FULL_IMAGE_PATH}:latest
+                    """
+                }
+            }
+        }
+        
+        stage('Push to Artifact Registry') {
+            steps {
+                echo '========== Pushing Docker Image to GCP Artifact Registry =========='
+                script {
+                    withCredentials([file(credentialsId: 'gcp-service-account', variable: 'GCP_KEY_FILE')]) {
+                        sh """
+                            # Authenticate with GCP
+                            gcloud auth activate-service-account --key-file=\${GCP_KEY_FILE}
+                            gcloud config set project ${GCP_PROJECT_ID}
+                            
+                            # Configure Docker to use gcloud as credential helper
+                            gcloud auth configure-docker ${ARTIFACT_REGISTRY} --quiet
+                            
+                            # Push images
+                            docker push ${FULL_IMAGE_PATH}:${IMAGE_TAG}
+                            docker push ${FULL_IMAGE_PATH}:latest
+                            
+                            echo "✅ Successfully pushed image to Artifact Registry"
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy Locally') {
+            steps {
+                echo '========== Deploying Container on Same Server =========='
+                script {
+                    withCredentials([file(credentialsId: 'gcp-service-account', variable: 'GCP_KEY_FILE')]) {
+                        sh """
+                            # Authenticate with GCP (for pulling from Artifact Registry)
+                            gcloud auth activate-service-account --key-file=\${GCP_KEY_FILE}
+                            gcloud config set project ${GCP_PROJECT_ID}
+                            gcloud auth configure-docker ${ARTIFACT_REGISTRY} --quiet
+                            
+                            # Stop and remove old container if exists
+                            docker stop ${CONTAINER_NAME} 2>/dev/null || true
+                            docker rm ${CONTAINER_NAME} 2>/dev/null || true
+                            
+                            # Remove dangling images to save space
+                            docker image prune -f || true
+                            
+                            # Pull the latest image
+                            docker pull ${FULL_IMAGE_PATH}:latest
+                            
+                            # Run new container
+                            docker run -d \
+                                --name ${CONTAINER_NAME} \
+                                -p ${APP_PORT}:80 \
+                                --restart unless-stopped \
+                                ${FULL_IMAGE_PATH}:latest
+                            
+                            # Wait a moment for container to start
+                            sleep 5
+                            
+                            # Verify container is running
+                            if docker ps | grep -q ${CONTAINER_NAME}; then
+                                echo "✅ Container ${CONTAINER_NAME} is running successfully"
+                                docker ps | grep ${CONTAINER_NAME}
+                            else
+                                echo "❌ Container failed to start"
+                                docker logs ${CONTAINER_NAME}
+                                exit 1
+                            fi
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                echo '========== Performing Health Check =========='
+                script {
+                    sh """
+                        # Wait for application to be ready
+                        sleep 10
+                        
+                        # Check if the application responds
+                        echo "Testing application at localhost:${APP_PORT}"
+                        if curl -f http://localhost:${APP_PORT} > /dev/null 2>&1; then
+                            echo "✅ Health check passed - Application is responding"
+                        else
+                            echo "❌ Health check failed - Application is not responding"
+                            docker logs ${CONTAINER_NAME}
+                            exit 1
+                        fi
                     """
                 }
             }
         }
     }
-
-    // This block runs after all stages
+    
     post {
-        always {
-            echo 'Cleaning up the Jenkins workspace...'
-            // Removes the built docker images from the Jenkins server to save space
-            sh "docker rmi ${IMAGE_NAME} || true"
-            sh "docker rmi ${IMAGE_NAME_LATEST} || true"
-        }
         success {
-            // You can configure the 'Mailer' plugin to send an email
-            echo "Pipeline Succeeded! App is live at http://${TARGET_EC2_IP}"
+            echo '========== Pipeline Completed Successfully! =========='
+            script {
+                def SERVER_IP = sh(script: "curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H 'Metadata-Flavor: Google'", returnStdout: true).trim()
+                
+                withCredentials([usernamePassword(credentialsId: 'gmail-credentials', usernameVariable: 'EMAIL_USER', passwordVariable: 'EMAIL_PASS')]) {
+                    emailext(
+                        subject: "✅ Jenkins Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+                            <html>
+                            <body style="font-family: Arial, sans-serif;">
+                                <div style="background-color: #4CAF50; color: white; padding: 20px; text-align: center;">
+                                    <h1>🎉 Build Successful!</h1>
+                                </div>
+                                <div style="padding: 20px;">
+                                    <h2>Build Details</h2>
+                                    <table style="border-collapse: collapse; width: 100%;">
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Job Name:</strong></td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;">${env.JOB_NAME}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build Number:</strong></td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;">#${env.BUILD_NUMBER}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Docker Image:</strong></td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;">${FULL_IMAGE_PATH}:${IMAGE_TAG}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build URL:</strong></td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><a href="${env.BUILD_URL}">View in Jenkins</a></td>
+                                        </tr>
+                                    </table>
+                                    
+                                    <h2 style="margin-top: 30px;">🚀 Application Access</h2>
+                                    <div style="background-color: #e3f2fd; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                                        <p style="margin: 5px 0;"><strong>Application URL:</strong></p>
+                                        <p style="margin: 5px 0; font-size: 18px;">
+                                            <a href="http://${SERVER_IP}" style="color: #1976D2; text-decoration: none;">
+                                                http://${SERVER_IP}
+                                            </a>
+                                        </p>
+                                    </div>
+                                    
+                                    <div style="background-color: #fff3e0; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                                        <p style="margin: 5px 0;"><strong>Jenkins Dashboard:</strong></p>
+                                        <p style="margin: 5px 0;">
+                                            <a href="http://${SERVER_IP}:8080" style="color: #F57C00; text-decoration: none;">
+                                                http://${SERVER_IP}:8080
+                                            </a>
+                                        </p>
+                                    </div>
+                                    
+                                    <h2 style="margin-top: 30px;">📦 Deployment Info</h2>
+                                    <ul>
+                                        <li>Platform: Google Cloud Platform (GCP)</li>
+                                        <li>Deployment Type: Docker Container</li>
+                                        <li>Container Name: ${CONTAINER_NAME}</li>
+                                        <li>Port: ${APP_PORT}</li>
+                                        <li>Registry: GCP Artifact Registry</li>
+                                    </ul>
+                                    
+                                    <p style="margin-top: 30px; color: #666;">
+                                        <em>This is an automated message from Jenkins CI/CD Pipeline</em>
+                                    </p>
+                                </div>
+                            </body>
+                            </html>
+                        """,
+                        to: 'mdfarhaanhere@gmail.com',
+                        mimeType: 'text/html',
+                        from: EMAIL_USER,
+                        replyTo: EMAIL_USER
+                    )
+                }
+            }
         }
+        
         failure {
-            echo 'Pipeline Failed.'
+            echo '========== Pipeline Failed! =========='
+            script {
+                def SERVER_IP = sh(script: "curl -s http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip -H 'Metadata-Flavor: Google'", returnStdout: true).trim()
+                
+                withCredentials([usernamePassword(credentialsId: 'gmail-credentials', usernameVariable: 'EMAIL_USER', passwordVariable: 'EMAIL_PASS')]) {
+                    emailext(
+                        subject: "❌ Jenkins Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+                            <html>
+                            <body style="font-family: Arial, sans-serif;">
+                                <div style="background-color: #f44336; color: white; padding: 20px; text-align: center;">
+                                    <h1>⚠️ Build Failed!</h1>
+                                </div>
+                                <div style="padding: 20px;">
+                                    <h2>Build Details</h2>
+                                    <table style="border-collapse: collapse; width: 100%;">
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Job Name:</strong></td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;">${env.JOB_NAME}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build Number:</strong></td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;">#${env.BUILD_NUMBER}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Build URL:</strong></td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><a href="${env.BUILD_URL}">View in Jenkins</a></td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><strong>Console Output:</strong></td>
+                                            <td style="padding: 8px; border: 1px solid #ddd;"><a href="${env.BUILD_URL}console">View Console Log</a></td>
+                                        </tr>
+                                    </table>
+                                    
+                                    <div style="background-color: #ffebee; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                                        <h3 style="margin-top: 0; color: #c62828;">Action Required</h3>
+                                        <p>Please check the console output to identify and fix the issue.</p>
+                                        <p>
+                                            <a href="${env.BUILD_URL}console" style="background-color: #f44336; color: white; padding: 10px 20px; text-decoration: none; border-radius: 3px; display: inline-block;">
+                                                View Console Output
+                                            </a>
+                                        </p>
+                                    </div>
+                                    
+                                    <h3>Jenkins Dashboard</h3>
+                                    <p>
+                                        <a href="http://${SERVER_IP}:8080">http://${SERVER_IP}:8080</a>
+                                    </p>
+                                    
+                                    <p style="margin-top: 30px; color: #666;">
+                                        <em>This is an automated message from Jenkins CI/CD Pipeline</em>
+                                    </p>
+                                </div>
+                            </body>
+                            </html>
+                        """,
+                        to: 'mdsheraz102@gmail.com',
+                        mimeType: 'text/html',
+                        from: EMAIL_USER,
+                        replyTo: EMAIL_USER
+                    )
+                }
+            }
+        }
+        
+        always {
+            echo '========== Cleaning up workspace =========='
+            cleanWs()
         }
     }
 }
