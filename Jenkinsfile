@@ -9,7 +9,7 @@ pipeline {
         GCP_PROJECT_ID = 'artisan-project-472013'  // Replace with your GCP project ID
         GCP_REGION = 'us-central1'  // Replace with your region
         ARTIFACT_REGISTRY = "${GCP_REGION}-docker.pkg.dev"
-        REPOSITORY_NAME = 'ci-cd-project'
+        REPOSITORY_NAME = 'devops-cia2-repo-sheraz'
         IMAGE_NAME = 'devops-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
         FULL_IMAGE_PATH = "${ARTIFACT_REGISTRY}/${GCP_PROJECT_ID}/${REPOSITORY_NAME}/${IMAGE_NAME}"
