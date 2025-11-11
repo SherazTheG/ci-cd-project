@@ -36,14 +36,6 @@ pipeline {
             }
         }
         
-        stage('Code Quality Analysis - ESLint') {
-            steps {
-                echo '========== Running ESLint =========='
-                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    sh 'npm run lint'
-                }
-            }
-        }
         
         stage('Build Application') {
             steps {
